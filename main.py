@@ -3,30 +3,30 @@ from PIL import Image
 
 def preparacao(option, extensions): # lista os arquivos a serem processados com base nas extensões
 
-    diretorio_atual = os.getcwd()  # pega o diretorio atual
-    arquivos = [] # guarda os arquivos listados
-    encontrou_arquivos = False
+    currentExecutedDir = os.getcwd()  # pega o diretorio atual
+    fileList = [] # guarda os arquivos listados
+    fileWasFound = False
 
-    for file in os.listdir(diretorio_atual): # para cada arquivo no diretorio atual
-        fileLower = file.lower() # o nome do arquivo ficará em minusculo para usar a comparação do 'extensions'
+    for file in os.listdir(currentExecutedDir): # para cada arquivo no diretorio atual
+        fileLowercaseName = file.lower() # o nome do arquivo ficará em minusculo para usar a comparação do 'extensions'
 
-        for extensao in extensions: # para cada extensão no parametro extensions
+        for fileExtensions in extensions: # para cada extensão no parametro extensions
 
-            if extensao in fileLower: # se o nome tiver a extensao
-                encontrou_arquivos = True # marca o encontrou arquivos como true
+            if fileExtensions in fileLowercaseName: # se o nome tiver a extensao
+                fileWasFound = True # marca o encontrou arquivos como true
 
-                if file not in arquivos: # se o arquivo não estiver ainda na lista
-                    arquivos.append(file) # adiciona o arquivo
+                if file not in fileList: # se o arquivo não estiver ainda na lista
+                    fileList.append(file) # adiciona o arquivo
 
-    if encontrou_arquivos == False: # se nenhum arquivo com o parametro de extensions for encontrado
+    if fileWasFound == False: # se nenhum arquivo com o parametro de extensions for encontrado
         print('\nNo files to work with\nCheck for typos in file names')
     else:
         if option == 1: # se a opção for X
-            listar_canais(arquivos) # ativa a função levando a lista de arquivos junto
+            listar_canais(fileList) # ativa a função levando a lista de arquivos junto
         elif option == 2 or option == 3:
-            vagparameter(arquivos)
+            vagparameter(fileList)
         elif option == 4:
-            inverte_colunas(arquivos)
+            inverte_colunas(fileList)
 
 
 def inverte_colunas(lista_arquivos):
@@ -57,69 +57,80 @@ def inverte_colunas(lista_arquivos):
 
 def vagparameter(lista_arquivos):
 
-    for arquivo in lista_arquivos: # para cada arquivo na lista_arquivos
+    sfxWasFoundCounter = 1 # conta os arquivos passados
 
-        if option == 3 and arquivo == 'sfx.wad': # se a opção for 3, cria variavel para a pasta de extração
-            outpath = str(input('\nExtract sfx.wad to (ex: C:/sfxrip): '))
+    for file in lista_arquivos: # para cada arquivo na lista_arquivos
 
-        with open(arquivo, 'rb') as file: # lê o arquivo como bytes
+        if option == 3 and file == 'sfx.wad': # se a opção for 3 e for sfx.wad
+            sfxExtractPath = str(input('\nExtract sfx.wad to (ex: C:/sfxrip): ')) # pede o diretório para extração
 
-            conteudo = file.read() # guarda todos os bytes na variável
-            palavras = [b"VAGp", b"MSVp"] # palavras chave para encontrar o header dentro do arquivo
-            print("\nFile: {}".format(arquivo))
+        elif sfxWasFoundCounter == len(lista_arquivos) and option == 3: # se não achou
+            print('\nNo sfx.wad to extract')
+            return # sai da função sem retorno
 
-            for palavra in palavras: # para cada palavra chave na lista
-                position = conteudo.find(palavra) # a posição 0 da palavra é guardada
+        elif option == 3 and file != 'sfx.wad': # se a opção for 3 e não for sfx.wad 
+            sfxWasFoundCounter = sfxWasFoundCounter + 1 # adiciona 1 ao contador
+            continue # continua para o próximo arquivo
+        
 
-                while position != -1: # enquanto a posição não for -1
+        with open(file, 'rb') as fileBytes: # lê o arquivo como bytes
 
-                    file.seek(position + 4) # move o ponteiro para a position, em relação ao inicio do arquivo, + 4
-                    file.seek(8,1) # move o ponteiro a partir de sua posição para 8 na direita
-                    bytelength = file.read(4).hex() # lê a quantidade em bytes o tamanho do audio, tirando o header
-                    sample = int.from_bytes(file.read(4), 'big') # lê o samplerate
-                    file.seek(12,1) # move o ponteiro em 12 a partir de sua posição
-                    inName = file.read(16).decode('utf-8', errors='ignore') # lê o nome interno da parte do arquivo
+            fileContent = fileBytes.read() # guarda todos os bytes na variável
+            keywords = [b"VAGp", b"MSVp"] # palavras chave para encontrar o header dentro do arquivo
+            print("\nFile: {}".format(file))
 
-                    if option != 3 or arquivo != "sfx.wad": # se não for option 3 ou sfx.wad
-                        print("{} - {} ({} bytes, {}Hz)".format(int(position), inName, bytelength.lstrip('0'), sample)) # printa
-                        position = conteudo.find(palavra, position + 1) # procura a próxima instancia da palavra
+            for keyword in keywords: # para cada palavra chave na lista
+                keyPosition = fileContent.find(keyword) # a posição da primeira palavra é guardada
+
+                while keyPosition != -1: # enquanto a posição não for -1
+
+                    fileBytes.seek(keyPosition + 4) # move o ponteiro para a position, em relação ao inicio do arquivo, + 4
+                    fileBytes.seek(8,1) # move o ponteiro a partir de sua posição para 8 na direita
+                    soundByteLength = fileBytes.read(4).hex() # lê a quantidade em bytes o tamanho do audio, tirando o header
+                    soundSamplerate = int.from_bytes(fileBytes.read(4), 'big') # lê o samplerate
+                    fileBytes.seek(12,1) # move o ponteiro em 12 a partir de sua posição
+                    soundName = fileBytes.read(16).decode('utf-8', errors='ignore') # lê o nome interno da parte do arquivo
+                    print("{} - {} ({} bytes, {}Hz)".format(int(keyPosition), soundName, soundByteLength.lstrip('0'), soundSamplerate)) # printa
+
+                    if option != 3: # se não for option 3
+                        keyPosition = fileContent.find(keyword, keyPosition + 1) # procura a próxima instancia da palavra
                         continue # volta pro inicio do while
 
-                    # quando opt = 3 e arquivo atual for sfx.wad, passa da condição e continua o while
+                    # quando opt = 3 e arquivo atual for sfx.wad, passará da condição e continua o while
 
-                    file.seek(position) # move o ponteiro para a position, em relação ao inicio do arquivo
-                    block = file.read(int(bytelength, 16) + 64) # lê o arquivo com o valor do tamanho de bytes + tamanho do header (64)
+                    fileBytes.seek(keyPosition) # move o ponteiro para a position, em relação ao inicio do arquivo
+                    soundBlock = fileBytes.read(int(soundByteLength, 16) + 64) # lê o arquivo com o valor do tamanho de bytes + tamanho do header (64)
 
-                    if sfxripper(inName, block, outpath) == False: # se em uma execução do sfxripper retornar false 
+                    if sfxripper(soundName, soundBlock, sfxExtractPath) == False: # se em uma execução do sfxripper retornar false 
                         print("\nStopping sfx.wad extraction\n(Already extracted)") # para a extração
                         break # quebra o loop
 
-                    position = conteudo.find(palavra, position + 1) # procura a próxima instancia da palavra
+                    keyPosition = fileContent.find(keyword, keyPosition + 1) # procura a próxima instancia da palavra
 
 def sfxripper(block_name, block_bytes, extract_path): # quando a opção for 3 e o arquivo atual do vagparameter for sfx.wad, o bloco nome e bytes serão usados para extrair o arquivo
 
-    i = 1 # instancia de nome igual
+    fileSameNameCounter = 1 # instancia de nome igual
 
-    current_file = block_name.replace("\x00", "").strip() # nome do arquivo atual sem caractere torto
-    out_filename = f"{current_file} ({i}).vag" # nome do arquivo saida será o nome do bloco + instancia + .vag
+    inFileName = block_name.replace("\x00", "").strip() # nome do arquivo atual sem caractere torto
+    outFileName = f"{inFileName} ({fileSameNameCounter}).vag" # nome do arquivo saida será o nome do bloco + instancia + .vag
 
-    out_path = os.path.join(extract_path, out_filename)  # caminho de saída para salvar será na pasta extract_path
+    outFileExtractPath = os.path.join(extract_path, outFileName)  # caminho de saída para salvar será na pasta extract_path
     os.makedirs(extract_path, exist_ok=True)  # cria a pasta caso não exista
 
-    while os.path.exists(out_path): # enquanto já houver um arquivo/caminho com mesmo nome
+    while os.path.exists(outFileExtractPath): # enquanto já houver um arquivo/caminho com mesmo nome
 
-        i = i + 1 # aumenta 1 na instancia
-        out_filename = f"{current_file} ({i}).vag" # atualiza nome de saida
+        fileSameNameCounter = fileSameNameCounter + 1 # aumenta 1 na instancia
+        outFileName = f"{inFileName} ({fileSameNameCounter}).vag" # atualiza nome de saida
 
-        if out_filename == 'gh3_battle_diff (2).vag': # se já houver o primeiro sfx na pasta
+        if outFileName == 'gh3_battle_diff (2).vag': # se já houver o primeiro sfx na pasta
             return False # retorna false
 
-        out_path = os.path.join(extract_path, out_filename) # atualiza caminho de saida
+        outFileExtractPath = os.path.join(extract_path, outFileName) # atualiza caminho de saida
 
-    with open(out_path, 'wb') as out_file: # abre o caminho de saida como arquivo para escrita em bytes
-        out_file.write(block_bytes) # escreve/extrai o bloco nele
+    with open(outFileExtractPath, 'wb') as outFile: # abre o caminho de saida como arquivo para escrita em bytes
+        outFile.write(block_bytes) # escreve/extrai o bloco nele
     
-    print("{} extracted".format(out_filename)) # printa
+    print("{} extracted".format(outFileName)) # printa
 
 
 
@@ -276,6 +287,6 @@ if __name__ == "__main__":
         elif option == 4:
             preparacao(option, [".png", ".jpg", ".jpeg"])
         elif option == 9:
-            print('Versão 1.3')
+            print('Versão 1.4')
     
     print('Closing...')
