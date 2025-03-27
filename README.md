@@ -3,7 +3,7 @@
 A convenience toolkit for modding **Guitar Hero 3** on **PlayStation 2**  
 Place the files in the same directory as the script
 
-> Note: To convert audio files to `.vag`, use **MFAudio v1.1** by **Muzzle Flash**
+> To convert audio files to `.vag`, use **MFAudio v1.1** by **Muzzle Flash**
 
 1. VAGs 2 Menu music
 
@@ -17,9 +17,14 @@ Can list: `.vag`, `.wad`, `.msv`, `.msvs`, `.isf`, `.imf`
 
 3. SFX Ripper
 
-Extracts audio files from `sfx.wad` as `.vags`
+Extracts audio files from `sfx.wad` as `.vag`
 
-4. Swap images columns
+4. SFX Inject
+
+Inject `.vag` files in `sfx.wad` and updates `sfxheader.qbScript`
+> Extract `sfxheader.qbScript` using **QueenBee** by **Nanook**
+
+5. Swap images columns
 
 Swaps pairs of columns in `.png` and `.jpg` files  
 Some images, when converted to textures with **minibuildgh3** makes pairs of columns to swap, displaying them wrong in game  
