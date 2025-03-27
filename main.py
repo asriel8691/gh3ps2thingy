@@ -1,4 +1,4 @@
-import os
+import os, io
 from PIL import Image
 
 def listfiles(option, extensions): # lista os arquivos a serem processados com base nas extensões
@@ -26,7 +26,193 @@ def listfiles(option, extensions): # lista os arquivos a serem processados com b
         elif option == 2 or option == 3:
             vagparameter(fileList)
         elif option == 4:
+            sfxinjection_content(fileList, currentExecutedDir)
+        elif option == 5:
             swapcolumns(fileList)
+
+
+
+def sfxinjection_check(current_executed_dir): # checa se no diretório atual tem o sfx.wad (container) e sfx.header.qpScript (header)
+
+    sfxContainerWasFound = False # checa se o sfx.wad está no mesmo diretório
+    sfxHeaderWasFound = False # checa com o sfxheader.qbScript
+
+    sfxContainer = None # guarda o diretório do sfx.wad
+    sfxHeader = None # guarda o diretório do sfxheader.qbScript
+
+    for file in os.listdir(current_executed_dir): # para cada arquivo no diretório
+
+        base, ext = os.path.splitext(file) # separa o nome do arquivo da extensão
+
+        if file == "sfx.wad": # se o arquivo for sfx.wad
+            print('\nsfx.wad file found')
+            sfxContainerWasFound = True # achou o container
+            sfxContainer = file # guarda o diretório
+
+        elif "sfxheader" in base.lower() or "sfx header" in base.lower(): # se tiver sfxheader no nome do arquivo com todas as letras minusculas
+            if not "(injected)" in base.lower():
+                print('\nsfx header file found')
+                sfxHeaderWasFound = True # achou o header
+                sfxHeader = file # guarda o diretório
+
+        if sfxContainerWasFound == True and sfxHeaderWasFound == True: # se achou os dois
+            print("\nStarting process")
+            break # sai do loop de procurar arquivos
+        
+    if sfxContainerWasFound == False: # se não achou o container
+        print('\nsfx.wad not found\nCopy the "sfx.wad" file from "sounds" folder in the GH3 root')
+        return # sai da função
+
+    elif sfxHeaderWasFound == False: # se não achou header
+        print('\nsfxheader not found\nExtract the sfxheader file from qb.pak.ps2 using QueenBee')
+        return # sai da função
+    
+    return sfxContainer, sfxHeader # começa a injeção de fato, com a lista de vags e diretórios do container e header
+
+
+
+def sfxinjection_content(file_list, current_executed_dir): # injeta os vags no container e informações do vag no header
+
+    sfxContainerFile, sfxHeaderFile = sfxinjection_check(current_executed_dir)
+
+
+    with open(sfxContainerFile, "rb") as sfxContainer: # abre o container em leitura para bytes
+        sfxContainerContent = sfxContainer.read() # guarda os bytes
+
+    with open(sfxHeaderFile, "rb") as sfxHeader: # abre o header original em leitura para bytes
+        sfxHeaderContent = sfxHeader.read() # guarda os bytes dele no temporário
+
+    for vag in file_list: # para cada vag na lista
+
+        vagFileName, vagFileExt = os.path.splitext(vag) # separa o nome do arquivo da extensão
+        bracketOpen = vagFileName.find('(') # ache se tem "(" no nome
+        bracketEnd = vagFileName.find(')') # ache se tem ")" no nome
+
+        # o nome do arquivo tem que ser: nome (X).vag
+        # X sendo 1, 2, 3, etc
+
+        print("\nInjecting {}".format(vagFileName))
+
+        if bracketOpen == -1 or bracketEnd == -1: # se não tiver no nome
+            print("Skipping {} (has no parentheses in file name)\nUse SFX Ripper to see the file name format".format(vag))
+            continue # vai para o próximo vag
+
+        vagInNameIterationEnd = int(vagFileName[bracketOpen + 1:bracketEnd]) # pega a iteração do nome interno que o vag irá substituir no container
+        
+        with open(vag, "rb") as vagFile: # lê o vag em bytes
+            vagFile.seek(12) # move o ponteiro por 12 bytes
+            vagFileByteLength = vagFile.read(4) # lê o tamanho do audio em bytes
+            vagFileSamplerate = vagFile.read(4) # lê o samplerate
+
+            vagFile.seek(12, 1) # move o ponteiro por 12 bytes a partir da posição atual
+            vagFileInName = vagFile.read(32) # lê o nome interno do audio + 16 bytes vazios
+
+            vagFileSound = vagFile.read() # lê o audio em bytes
+
+        vagInNamePosition = sfxContainerContent.find(vagFileInName) # procura a posição do primeiro byte do nome interno no container
+        vagInNameIteration = 0 # iteração de quantas vezes o nome interno se repete no container
+
+        while vagInNameIteration < vagInNameIterationEnd: # enquanto a iteração for menor que a sequencia
+
+            vagInNamePosition = sfxContainerContent.find(vagFileInName, vagInNamePosition + (32 * vagInNameIteration)) # procura a próxima posição do nome interno a partir da posição atual
+            
+            print('Intern name iteration: {} of {} - New position: {}'.format(vagInNameIteration + 1, vagInNameIterationEnd, hex(vagInNamePosition)), end = '\r')
+
+            if vagInNamePosition == -1: # se for -1 / não achar
+                print('\nIteration bigger than expected (sfx.wad has {} iterations)'.format(vagInNameIteration))
+                break # quebra
+
+            vagFileEndPosition = sfxContainerContent.find(b'\x00\x07\x77\x77', vagInNamePosition + (32 * vagInNameIteration)) # procura a posição do fim do vag de acordo com a iteração atual
+            vagInNameIteration += 1 # passa para a próxima iteração
+
+        if vagInNamePosition == -1:
+            print('Skipping to next sequence')
+            continue # continua no próximo vag
+
+        print('\nRebuilding sfx.wad container')
+
+        sfxContainerRemainder = sfxContainerContent[vagFileEndPosition + 16:] # guarda o restante do container a partir do final do vag atual
+        # escreve o que estava antes do byte length, o próprio byte length, samplerate, espaço vazio, nome interno e o audio em si e, então escreve o restante
+        sfxContainerContent = sfxContainerContent[:vagInNamePosition - 20] + vagFileByteLength + vagFileSamplerate + (b"\x00" * 12) + vagFileInName + vagFileSound + sfxContainerRemainder
+
+    sfxinjection_construct(sfxContainerContent, sfxHeaderContent) # inicia a construção do header
+
+
+
+def sfxinjection_construct(sfx_container_content, sfx_header_content):
+
+    vagStartPositionList = [] # lista da posição inicial de todos os vags do container modificado
+    vagSamplerateList = [] # lista de todos os samplerates
+    vagTotalSizeList = [] # lista do tamanho total dos vags (bytes length + cabeçalho)
+
+    vagStartPosition = sfx_container_content.find(b"VAGp") # procura a posição inicial do vag no container modificado
+
+    while vagStartPosition != -1: # enquanto não for -1
+
+        vagStartPositionList.append(vagStartPosition) # guarda a posição na lista
+        vagStartPosition = sfx_container_content.find(b"VAGp", vagStartPosition + 4) # procura pela próxima instancia do VAGp no container a partir da posição atual + 4
+
+    bufferContainer = io.BytesIO() # cria um arquivo temporário para o container modificado
+    bufferContainer.write(sfx_container_content) # escreve o container nele
+    bufferContainer.seek(0) # move o ponteiro para o início
+
+    bufferHeader = io.BytesIO() # cria um arquivo temporário para o header
+    bufferHeader.write(sfx_header_content) # escreve o conteúdo no temporário
+    bufferHeader.seek(2) # move o ponteiro do temporário para o terceiro byte
+
+    for position in vagStartPositionList: # para cada posição na lista de posições iniciais
+
+        bufferContainer.seek(position + 12, 0) # move o ponteiro por 12 bytes a partir da posição atual
+
+        vagFileSize = int.from_bytes(bufferContainer.read(4), "big") # lê o byte length e transforma em número inteiro
+        vagFileSize = (vagFileSize + 64).to_bytes(4, "big") # adiciona 64, o tamanho do cabeçalho, e transforma para bytes novamente
+
+        vagTotalSizeList.append(vagFileSize) # guarda o tamanho total na lista
+        vagSamplerateList.append(bufferContainer.read(4)) # lê e guarda o samplerate na lista dele
+
+    print('\nCreating injected container file')
+
+    with open("sfx (injected).wad", "wb") as sfxContainerJ: # abre/cria o arquivo do container modificado
+        sfxContainerJ.write(bufferContainer.getvalue()) # escreve o arquivo temporário no container
+
+    bufferContainer = None # limpa o buffer
+
+
+    print('\nRebuilding sfxheader')
+
+    sfxCurrentVag = 0 # linha atual do header
+
+    while sfxCurrentVag < len(vagStartPositionList): # enquanto o numero do vag atual for menor que o tamanho da lista de posições (de todos os vags do container)
+        bufferHeader.seek(42, 1) # move o ponteiro para 42 a partir da posição atual
+        bufferHeader.write(vagSamplerateList[sfxCurrentVag][::-1]) # escreve o samplerate do vag atual em little
+
+        bufferHeader.seek(12, 1) # move o ponteiro em 12
+        sfxHeaderStereoCheck = bufferHeader.read(4) # lê o flag de mono ou estéreo da linha atual do header
+
+        bufferHeader.seek(12, 1) # move o ponteiro em 12
+        bufferHeader.write(vagStartPositionList[sfxCurrentVag].to_bytes(4, "little")) # escreve a posição atual do vag atual em little
+
+        if sfxHeaderStereoCheck == b"\x72\xB3\x03\x02": # se a string do flag for estéreo
+            sfxCurrentVag += 1 # pula para o próximo vag (se não pular, ele escreverá o lado direito do vag na próxima linha do header, quebrando a leitura no final)
+
+        bufferHeader.seek(12, 1) # move o ponteiro em 12
+        bufferHeader.write(vagTotalSizeList[sfxCurrentVag][::-1]) # escreve o tamanho total do arquivo do vag atual em little
+
+        bufferHeader.seek(6, 1) # move o ponteiro em 6
+        sfxCurrentVag += 1 # vai para o próximo vag
+
+    if sfxCurrentVag < 558:
+        print('Rebuiling process finished early\nRemaining headers will not be modified')
+
+    print('\nCreating injected header file')
+
+    with open("sfxheader (injected).qbScript", "wb") as sfxHeaderJ: # abre/cria o header modificado
+        sfxHeaderJ.write(bufferHeader.getvalue()) # escreve o arquivo temporário do header modificado nele
+
+    bufferHeader = None # limpa o buffer
+
+    print('\nFiles injected successfully!')
+
 
 
 def swapcolumns(file_list):
@@ -43,7 +229,7 @@ def swapcolumns(file_list):
         inImageWidth, inImageHeight = inImage.size # pega a largura e a altura da img
 
         outImage = inImage.copy() # copia a imagem para a saida
-        outImagePixels = inImage.load() # carrega cada pixel no saida_pixels
+        outImagePixels = outImage.load() # carrega cada pixel no saida_pixels
         outImageName = imageName + "_inv" + imageExt # o nome e a extensão será o mesmo junto com _inv, mostrando que inverteu as colunas
 
         print("\nSwapping {}".format(image))
@@ -80,6 +266,8 @@ def vagparameter(file_list):
             keywords = [b"VAGp", b"MSVp"] # palavras chave para encontrar o header dentro do arquivo
             print("\nFile: {}".format(file))
 
+            soundIndex = 0
+
             for keyword in keywords: # para cada palavra chave na lista
                 keyPosition = fileContent.find(keyword) # a posição da primeira palavra é guardada
 
@@ -91,9 +279,10 @@ def vagparameter(file_list):
                     soundSamplerate = int.from_bytes(fileBytes.read(4), 'big') # lê o samplerate
                     fileBytes.seek(12,1) # move o ponteiro em 12 a partir de sua posição
                     soundName = fileBytes.read(16).decode('utf-8', errors='ignore') # lê o nome interno da parte do arquivo
-                    print("{} - {} ({} bytes, {}Hz)".format(int(keyPosition), soundName, soundByteLength.lstrip('0'), soundSamplerate)) # printa
+                    print("{} {} - {} ({} bytes, {}Hz)".format(soundIndex + 1, "0x" + str(format(keyPosition, '08x')), soundName, soundByteLength.lstrip('0'), soundSamplerate)) # printa
 
                     if option != 3: # se não for option 3
+                        soundIndex += 1
                         keyPosition = fileContent.find(keyword, keyPosition + 1) # procura a próxima instancia da palavra
                         continue # volta pro inicio do while
 
@@ -105,7 +294,8 @@ def vagparameter(file_list):
                     if sfxripper(soundName, soundBlock, sfxExtractPath) == False: # se em uma execução do sfxripper retornar false 
                         print("\nStopping sfx.wad extraction\n(Already extracted)") # para a extração
                         break # quebra o loop
-
+                    
+                    soundIndex += 1
                     keyPosition = fileContent.find(keyword, keyPosition + 1) # procura a próxima instancia da palavra
 
 def sfxripper(block_name, block_bytes, extract_path): # quando a opção for 3 e o arquivo atual do vagparameter for sfx.wad, o bloco nome e bytes serão usados para extrair o arquivo
@@ -289,9 +479,9 @@ if __name__ == "__main__":
 
     while option != 0:
         try:
-            option = int(input("\nAsriel8691's GH3PS2 Thingy\n\n1 - VAGs 2 Menu music\n2 - VAG/MSV parameters\n3 - SFX Ripper\n4 - Invert images columns\n\n0 - Exit\n> "))
+            option = int(input("\nAsriel8691's GH3PS2 Thingy\n\n1 - VAGs 2 Menu music\n2 - VAG/MSV parameters\n3 - SFX Ripper\n4 - SFX Inject\n5 - Invert images columns\n\n0 - Exit\n> "))
         except:
-            print('\nInvalid option\n')
+            print('\nInvalid option')
             continue
 
         if option == 1:
@@ -299,8 +489,12 @@ if __name__ == "__main__":
         elif option == 2 or option == 3:
             listfiles(option, [".vag", ".wad", ".msv", ".msvs", ".isf", ".imf"])
         elif option == 4:
+            listfiles(option, [".vag"])
+        elif option == 5:
             listfiles(option, [".png", ".jpg", ".jpeg"])
+
         elif option == 9:
-            print('Versão 1.5')
+            print('Versão 1.6')
+
     
     print('Closing...')
