@@ -4,6 +4,7 @@ from PIL import Image
 def listfiles(option, extensions): # lista os arquivos a serem processados com base nas extensões
 
     currentExecutedDir = os.getcwd()  # pega o diretorio atual
+
     fileList = [] # guarda os arquivos listados
     fileWasFound = False
 
@@ -12,8 +13,10 @@ def listfiles(option, extensions): # lista os arquivos a serem processados com b
 
         for fileExtension in extensions: # para cada extensão no parametro extensions
 
-            if fileExtension in fileLowercaseName: # se o nome tiver a extensao
+            if fileLowercaseName.endswith(fileExtension.lower()): # se o nome tiver a extensao
                 fileWasFound = True # marca o encontrou arquivos como true
+
+                # fullFilePath = os.path.join(currentExecutedDir, file)
 
                 if file not in fileList: # se o arquivo não estiver ainda na lista
                     fileList.append(file) # adiciona o arquivo
@@ -74,7 +77,6 @@ def sfxinjection_check(current_executed_dir): # checa se no diretório atual tem
 def sfxinjection_content(file_list, current_executed_dir): # injeta os vags no container e informações do vag no header
 
     sfxContainerFile, sfxHeaderFile = sfxinjection_check(current_executed_dir)
-
 
     with open(sfxContainerFile, "rb") as sfxContainer: # abre o container em leitura para bytes
         sfxContainerContent = sfxContainer.read() # guarda os bytes
@@ -202,7 +204,7 @@ def sfxinjection_construct(sfx_container_content, sfx_header_content):
         sfxCurrentVag += 1 # vai para o próximo vag
 
     if sfxCurrentVag < 558:
-        print('Rebuiling process finished early\nRemaining headers will not be modified')
+        print('Rebuilding process finished early\nRemaining headers will not be modified')
 
     print('\nCreating injected header file')
 
@@ -241,6 +243,8 @@ def swapcolumns(file_list):
 
         outImage.save(outImageName, icc_profile = inImage.info.get("icc_profile")) #iccprofile será o mesmo do input. se tiver o icc do photoshop, manterá saturado no final
         print("Column swapped successfully!")
+
+
 
 def vagparameter(file_list):
 
@@ -297,6 +301,8 @@ def vagparameter(file_list):
                     
                     soundIndex += 1
                     keyPosition = fileContent.find(keyword, keyPosition + 1) # procura a próxima instancia da palavra
+
+
 
 def sfxripper(block_name, block_bytes, extract_path): # quando a opção for 3 e o arquivo atual do vagparameter for sfx.wad, o bloco nome e bytes serão usados para extrair o arquivo
 
@@ -457,20 +463,25 @@ def createmsv(msvs_pair, block_byte_size, pair_name):
 
     print('\nSorting channel blocks')
 
+    bufferMSV = io.BytesIO()
+
+    for msvBlock in range(msvBlocks): # para cada bloco (0, 1, 2, ...)
+
+        print('Block {} of {} (L and R)'.format(msvBlock + 1, msvBlocks), end='\r') # \r "reprinta" a linha atual
+        for msvsChContent in msvsPairContent: # para cada conteudo de canal do par
+
+            blockStart = msvBlock * block_byte_size # calcula o inicio do bloco (2 * 0x20000 = 0x40000)
+            blockEnd = blockStart + block_byte_size # o final do bloco (0x40000 + 0x20000 = 0x60000)
+
+            if blockStart < len(msvsChContent): # se o início do bloco for menor que o tamanho do conteudo do canal
+                bufferMSV.write(msvsChContent[blockStart:blockEnd]) # escreve no msv o conteudo do blockstart até o blockend
+    
     with open(pair_name + '.msv', "wb") as msvFile: # cria o msv do par atual e abre para escrita em bytes
-
-        for msvBlock in range(msvBlocks): # para cada bloco (0, 1, 2, ...)
-
-            print('Block {} of {} (L and R)'.format(msvBlock + 1, msvBlocks), end='\r') # \r "reprinta" a linha atual
-            for msvsChContent in msvsPairContent: # para cada conteudo de canal do par
-
-                blockStart = msvBlock * block_byte_size # calcula o inicio do bloco (2 * 0x20000 = 0x40000)
-                blockEnd = blockStart + block_byte_size # o final do bloco (0x40000 + 0x20000 = 0x60000)
-
-                if blockStart < len(msvsChContent): # se o início do bloco for menor que o tamanho do conteudo do canal
-                    msvFile.write(msvsChContent[blockStart:blockEnd]) # escreve no msv o conteudo do blockstart até o blockend
+        msvFile.write(bufferMSV.getvalue()) # escreve no msv o conteudo do blockstart até o blockend
     
     print('\nMSV created!')
+
+    bufferMSV = None
 
 
 if __name__ == "__main__":
@@ -479,7 +490,7 @@ if __name__ == "__main__":
 
     while option != 0:
         try:
-            option = int(input("\nAsriel8691's GH3PS2 Thingy\n\n1 - VAGs 2 Menu music\n2 - VAG/MSV parameters\n3 - SFX Ripper\n4 - SFX Inject\n5 - Invert images columns\n\n0 - Exit\n> "))
+            option = int(input("\nAsriel8691's GH3PS2 Thingy\n\n1 - VAGs 2 Menu music\n2 - VAG/MSV parameters\n3 - SFX Ripper\n4 - SFX Inject\n5 - Swap images columns\n\n0 - Exit\n> "))
         except:
             print('\nInvalid option')
             continue
@@ -494,7 +505,7 @@ if __name__ == "__main__":
             listfiles(option, [".png", ".jpg", ".jpeg"])
 
         elif option == 9:
-            print('Versão 1.6')
+            print('Versão 1.6.1')
 
     
     print('Closing...')
