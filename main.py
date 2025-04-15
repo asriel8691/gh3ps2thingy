@@ -1,7 +1,7 @@
 import os, io
 from PIL import Image
 
-def listfiles(option, extensions): # lista os arquivos a serem processados com base nas extensões
+def listfiles(extensions): # lista os arquivos a serem processados com base nas extensões
 
     currentExecutedDir = os.getcwd()  # pega o diretorio atual
 
@@ -23,15 +23,9 @@ def listfiles(option, extensions): # lista os arquivos a serem processados com b
 
     if fileWasFound == False: # se nenhum arquivo com o parametro de extensions for encontrado
         print('\nNo files to work with\nCheck for typos in file names')
+        return []
     else:
-        if option == 1: # se a opção for X
-            listchannels(fileList) # ativa a função levando a lista de arquivos junto
-        elif option == 2 or option == 3:
-            vagparameter(fileList)
-        elif option == 4:
-            sfxinjection_content(fileList, currentExecutedDir)
-        elif option == 5:
-            swapcolumns(fileList)
+        return fileList
 
 
 
@@ -74,9 +68,11 @@ def sfxinjection_check(current_executed_dir): # checa se no diretório atual tem
 
 
 
-def sfxinjection_content(file_list, current_executed_dir): # injeta os vags no container e informações do vag no header
+def sfxinjection_content(file_list): # injeta os vags no container e informações do vag no header
 
-    sfxContainerFile, sfxHeaderFile = sfxinjection_check(current_executed_dir)
+    currentExecutedDir = os.getcwd()
+
+    sfxContainerFile, sfxHeaderFile = sfxinjection_check(currentExecutedDir)
 
     with open(sfxContainerFile, "rb") as sfxContainer: # abre o container em leitura para bytes
         sfxContainerContent = sfxContainer.read() # guarda os bytes
@@ -177,7 +173,7 @@ def sfxinjection_construct(sfx_container_content, sfx_header_content):
     with open("sfx (injected).wad", "wb") as sfxContainerJ: # abre/cria o arquivo do container modificado
         sfxContainerJ.write(bufferContainer.getvalue()) # escreve o arquivo temporário no container
 
-    bufferContainer = None # limpa o buffer
+    bufferContainer.close() # limpa o buffer
 
 
     print('\nRebuilding sfxheader')
@@ -211,7 +207,7 @@ def sfxinjection_construct(sfx_container_content, sfx_header_content):
     with open("sfxheader (injected).qbScript", "wb") as sfxHeaderJ: # abre/cria o header modificado
         sfxHeaderJ.write(bufferHeader.getvalue()) # escreve o arquivo temporário do header modificado nele
 
-    bufferHeader = None # limpa o buffer
+    bufferHeader.close() # limpa o buffer
 
     print('\nFiles injected successfully!')
 
@@ -357,8 +353,8 @@ def listchannels(file_list): # lista todos os arquivos vag e prepara em casais p
 
         if vagChannelL in file_list and vagChannelR in file_list: # se tiver ambos os canais
             
-            msvsPair = [createmsvs(vagChannelL), createmsvs(vagChannelR)] # após a clonagem, o msv criado é listado no arquivos msv
-            createmsv(msvsPair, 0x20000, pairName)
+            vagPair = [vagChannelL, vagChannelR] # pega o caminho de cada lado e junta em uma lista
+            createmsv(vagPair, pairName) # cria o msv com o par de vag e o nome do par bruto
 
         else:
             if vagChannelL not in file_list: # se não tiver um dos canais do par atual no arquivos
@@ -369,119 +365,145 @@ def listchannels(file_list): # lista todos os arquivos vag e prepara em casais p
 
 
 
-def createmsvs(vag_channel): # cria os canais msvs a partir dos vags
+def headerchanger(msvs_content, pair_name): # altera o cabeçalho do canal atual msvs
 
-    msvsChannel = vag_channel[:-4] + ".msvs" # coloca o nome e o canal do vag ao msvs
-    print("Creating {}".format(msvsChannel))
+    with io.BytesIO(msvs_content) as buffer:
 
-    with open(vag_channel, 'rb') as vagFile: # abre o vag channel atual do par
-        vagContent = vagFile.read() # guarda todo o conteudo do vag na variavel
+        vagHeader = buffer.read(3)  # lê os primeiros 48 bytes (0x00 até 0x2F)
 
-    with open(msvsChannel, 'wb') as msvsFile: # cria/abre o arquivo msvs
-        msvsFile.write(vagContent) # escreve todo o conteudo do vag no msvs
+        if vagHeader == b'VAG':  # verifica se os primeiros 3 bytes são 'VAG'
+            buffer.seek(0)  # move o ponteiro para o início
+            buffer.write(b'MSV')  # substitui 'VAG' por 'MSV'
 
-    return msvsChannel # retorna o nome canal do msvs
+        buffer.seek(32) # move o ponteiro ao 0x20 a partir do inicio, parando no inicio do nome interno
+        buffer.write(b'\x00' * 16) # limpa o nome que estava antes, preenchendo com 0x00
+        buffer.seek(-16, 1) # volta para o inicio do nome
+
+        vagName = (pair_name.split('.')[0])[:-1] # (arquivo) L.msv (divide o nome do arquivo em 2 pelo '.', seleciona o primeiro item e depois corta o lado (L/R))
+        vagChannelSide = (pair_name.split('.')[0])[-1] # arquivo (L) .msv
+
+        buffer.write((vagName[:15] + vagChannelSide).encode('utf-8')) # o nome é limitado a 15 chars. o lado ficará no final do nome mesmo se passar do limite
+
+        return buffer.getvalue() # retorna todo o conteudo do vag
 
 
 
-def headerchanger(msvs_channel): # altera o cabeçalho do canal atual msvs
+def endtriggerremove(msvs_content): # tira o trigger de parar a música no final do canal
 
-    print('Changing header {}'.format(msvs_channel))
-
-    with open(msvs_channel, "r+b") as msvsFile: # abre como ler e escrever em bytes
-        msvsHeader = msvsFile.read(3)  # lê os primeiros 48 bytes (0x00 até 0x2F)
+    with io.BytesIO(msvs_content) as buffer:
         
-        if msvsHeader == b'VAG':  # verifica se os primeiros 3 bytes são 'VAG'
-            msvsFile.seek(0)  # move o ponteiro para o início
-            msvsFile.write(b'MSV')  # substitui 'VAG' por 'MSV'
+        buffer.seek(-31, 2) # move o ponteiro para o final e 0x1F para trás
+        vagFlag = buffer.read(1) # lê a flag do final do arquivo
 
-        msvsFile.seek(32) # move o ponteiro ao 0x20 a partir do inicio, parando na linha do nome interno
+        if vagFlag == b'\x01': # se o byte for 0x01
 
-        msvsName = (msvs_channel.split('.')[0])[:-1] # (arquivo) L.msv (divide o nome do arquivo em 2 pelo '.', seleciona o primeiro item e depois corta o lado (L/R))
-        msvsChannelSide = (msvs_channel.split('.')[0])[-1] # arquivo (L) .msv
-
-        msvsFile.write((msvsName[:15] + msvsChannelSide).encode('utf-8')) # o nome é limitado a 15 chars. o lado ficará no final do nome mesmo se passar do limite
-
-        endtriggerremove(msvs_channel) # chama para remover o trigger final do canal atual
-
-
-
-def endtriggerremove(msvs_channel): # tira o trigger de parar a música no final do canal
-
-    print('Cutting end flag {}'.format(msvs_channel))
-
-    with open(msvs_channel, "r+b") as msvsFile: # abre como ler e escrever em bytes
-
-        msvsFile.seek(-31, 2) # move o ponteiro para o final e 0x1F para trás
-        msvsFooter = msvsFile.read(31) # lê o final do arquivo
-
-        if msvsFooter[:1] == b'\x01': # se o primeiro byte for 0x01
-            # msvsFooter = b'\x00' * 31 # o rodapé será reescrito com 0x00
-            msvsFile.seek(-31, 2) # move o ponteiro novamente
-            msvsFile.write(b'\x00' * 31) # o rodapé é escrito no arquivo atual
+            buffer.seek(-1, 1) # move o ponteiro novamente para a flag
+            buffer.write(b'\x00') # remove a flag
+            buffer.seek(15, 1) # avança 15 bytes a partir da posição atual
+            buffer.write(b'\x00' * 15) # remove a linha 0x77 sobrescrevendo com 0x00
+    
+        return buffer.getvalue() # retorna todo o conteudo do vag
 
 
 
-def adjustsize(msvs_channel, block_byte_size):
+def adjustsize(msvs_content, block_quantity):
 
-    with open(msvs_channel, "rb") as msvsFile: # abre o canal msvs para ler em bytes
-        msvsContent = msvsFile.read()  # guarda todos os bytes dele
+    with io.BytesIO(msvs_content) as buffer:
 
-    msvsSize = len(msvsContent)  # pega o tamanho do conteudo
-    msvsSizeRemain = block_byte_size - (msvsSize % block_byte_size)  # calcula os bytes que faltam para o próximo multiplo
+        msvsSize = len(buffer.getvalue()) # guarda o tamanho do vag
+        msvsMaxSize = (block_quantity) * 0x20000 # calcula o tamanho máximo do vag com a quantidade de blocos máxima
 
-    if msvsSizeRemain != block_byte_size:  # se o tamanho restante for diferente do tamanho do bloco
-        msvsContent += b'\x00' * msvsSizeRemain  # preenche o conteudo com bytes vazios usando a quantidade do restante
+        msvsSizeRemain = msvsMaxSize - msvsSize # calcula o restante fazendo a diferença do máximo pro tamanho atual
+        buffer.seek(0) # move o ponteiro para o inicio
+        buffer.write(buffer.getvalue() + (b'\x00' * msvsSizeRemain))  # preenche o conteudo com bytes vazios usando a quantidade do restante
 
-    return msvsContent  # retorna o CONTEÚDO processado, não o nome do canal
+        return buffer.getvalue()  # retorna todo o conteudo do vag
+    
+    
+    
+def createmsv(vag_pair_path, base_name):
 
+    print('\nStarting process {}'.format(base_name + '.msv'))
 
+    vagPairContent = [] # cria uma lista limpa para os arquivos msvs em bytes
+    vagPairBlocks = [] # lista vazia para guardar a quantidade de blocos do tamanho block_byte_size cabem no conteudo
+    msvsPair = [] # lista vazia para guardar os bytes do par processado
 
-def createmsv(msvs_pair, block_byte_size, pair_name):
+    for vagChannel in vag_pair_path: # para cada canal do par vag
+        
+        bufferVAG = io.BytesIO() # inicia um arquivo temporário em bytes para o vag atual
 
-    msvsPairContent = [] # cria uma lista limpa para os arquivos msvs em bytes
+        with open(vagChannel, 'rb') as vagFile: # abre o lado atual em bytes
+            bufferVAG.write(vagFile.read()) # lê o vag inteiro e guarda no buffer
+        
+        vagSize = len(bufferVAG.getvalue()) # pega o tamanho total do vag
+        vagBlockRemain = 0x20000 - ((vagSize + 1) % 0x20000) # calcula a quantidade de bytes que faltam para o próximo bloco
+        vagChannelBlocks = (vagSize + vagBlockRemain) // 0x20000 # divide o tamanho do conteudo + restante do bloco dividido por 0x20000
 
-    for msvsChannel in msvs_pair: # para cada canal do par msvs
+        vagPairBlocks.append(vagChannelBlocks) # guarda a divisão (o tanto de blocos) na lista
+        vagPairContent.append(bufferVAG.getvalue()) # guarda os bytes de cada canal na lista
 
-        print('\nStarting process {}'.format(msvsChannel))
+        bufferVAG.close() # fecha o buffer do vag atual
 
-        headerchanger(msvsChannel) # muda o cabeçalho (e o rodapé)
-        msvsPairContent.append(adjustsize(msvsChannel, block_byte_size)) # chama a função para ajustar o tamanho do canal atual e coloca o CONTEÚDO na lista
+    if vagPairBlocks[0] != vagPairBlocks[1]: # se a quantidade de blocos de um canal for diferente do outro
+        
+        print('\nStopping {} process\nChannels differ in size/block quantities\n(Left: {}/Right: {})'.format(base_name + '.msv', vagPairBlocks[0], vagPairBlocks[1]))
+        
+        while True:
+            option = input("Continue process? [Y/N]: ").strip().lower()
 
-        print('Adjusted size {}'.format(msvsChannel))
+            if option in ('y', ''):
+                break  # sai do loop e continua o programa
 
-    msvsPairBlocks = [] # lista vazia para guardar a quantidade de blocos do tamanho block_byte_size cabem no conteudo
+            elif option == 'n':
+                print("Aborting {} creation".format(base_name + '.msv'))
+                return  # aborta o processo
 
-    # esse for abaixo acho que não é necessário, já que os canais sempre terão o mesmo tamanho de conteudo. ou seja, o mesmo tanto de blocos
+            else:
+                print("Invalid input")
 
-    for msvsChContent in msvsPairContent: # para cada conteudo de canal no par
+    vagBlocks = max(vagPairBlocks) # guarda qual canal tem a maior quantidade de blocos para usar na construção do msv
+        
+    for i, vagContent in enumerate(vagPairContent): # para cada conteudo no par atual (enumerate cria i)
 
-        msvsChannelBlocks = len(msvsChContent) // block_byte_size # divide o tamanho do conteudo pelo tamanho do bloco em bytes
-        msvsPairBlocks.append(msvsChannelBlocks) # guarda a divisão (o tanto de blocos) na lista
+        print('\nChanging header {}'.format(vag_pair_path[i]))
+        vagProcessed = headerchanger(vagContent, vag_pair_path[i]) # muda o cabeçalho de VAG para MSV + nome interno
+        
+        print('Cutting end flag {}'.format(vag_pair_path[i]))
+        vagProcessed = endtriggerremove(vagProcessed) # remove a flag final do arquivo
 
-    msvBlocks = max(msvsPairBlocks) # acha qual canal tem a maior quantidade de blocos para usar na construção do msv
+        msvsChannel = vag_pair_path[i][:-4] + '.msvs' # pega o nome do arquivo do vag e transforma para msvs
+        with open(msvsChannel, 'wb') as msvsFile: # cria o arquivo msvs para o lado atual em bytes
+            msvsFile.write(vagProcessed) # escreve o vag sem header e fim nele
+
+        vagProcessed = adjustsize(vagProcessed, vagBlocks) # ajusta o tamanho com base do lado com quantidade de blocos máxima
+        msvsPair.append(vagProcessed) # guarda os bytes do vag processado no par msvs
+
+        print('Adjusted size {}'.format(vag_pair_path[i]))
+
 
     print('\nSorting channel blocks')
 
-    bufferMSV = io.BytesIO()
+    bufferMSV = io.BytesIO() # cria um buffer para os blocos organizados
 
-    for msvBlock in range(msvBlocks): # para cada bloco (0, 1, 2, ...)
+    for vagBlock in range(vagBlocks): # para cada bloco (0, 1, 2, ...)
 
-        print('Block {} of {} (L and R)'.format(msvBlock + 1, msvBlocks), end='\r') # \r "reprinta" a linha atual
-        for msvsChContent in msvsPairContent: # para cada conteudo de canal do par
+        print('Block {} of {} (L and R)'.format(vagBlock + 1, vagBlocks), end='\r') # \r "reprinta" a linha atual
+        for msvsChContent in msvsPair: # para cada conteudo de canal do par
 
-            blockStart = msvBlock * block_byte_size # calcula o inicio do bloco (2 * 0x20000 = 0x40000)
-            blockEnd = blockStart + block_byte_size # o final do bloco (0x40000 + 0x20000 = 0x60000)
+            blockStart = vagBlock * 0x20000 # calcula o inicio do bloco (2 * 0x20000 = 0x40000)
+            blockEnd = blockStart + 0x20000 # o final do bloco (0x40000 + 0x20000 = 0x60000)
 
             if blockStart < len(msvsChContent): # se o início do bloco for menor que o tamanho do conteudo do canal
-                bufferMSV.write(msvsChContent[blockStart:blockEnd]) # escreve no msv o conteudo do blockstart até o blockend
+                bufferMSV.write(msvsChContent[blockStart:blockEnd]) # escreve no buffer o conteudo do blockstart até o blockend
     
-    with open(pair_name + '.msv', "wb") as msvFile: # cria o msv do par atual e abre para escrita em bytes
+    with open(base_name + '.msv', "wb") as msvFile: # cria o msv do par atual e abre para escrita em bytes
         msvFile.write(bufferMSV.getvalue()) # escreve no msv o conteudo do blockstart até o blockend
     
-    print('\nMSV created!')
+    bufferMSV.close() # limpa o buffer
 
-    bufferMSV = None
+    print('\n{} created!'.format(base_name + '.msv'))
+
 
 
 if __name__ == "__main__":
@@ -496,16 +518,25 @@ if __name__ == "__main__":
             continue
 
         if option == 1:
-            listfiles(option, [".vag"])
+            fileList = listfiles([".vag"])
+            if fileList != []:
+                listchannels(fileList)
         elif option == 2 or option == 3:
-            listfiles(option, [".vag", ".wad", ".msv", ".msvs", ".isf", ".imf"])
+            fileList = listfiles([".vag", ".wad", ".msv", ".msvs", ".isf", ".imf"])
+            if fileList != []:
+                vagparameter(fileList)
         elif option == 4:
-            listfiles(option, [".vag"])
+            fileList = listfiles([".vag"])
+            if fileList != []:
+                sfxinjection_content(fileList)
         elif option == 5:
-            listfiles(option, [".png", ".jpg", ".jpeg"])
+            fileList = listfiles([".png", ".jpg", ".jpeg"])
+            if fileList != []:
+                swapcolumns(fileList)
+            
 
         elif option == 9:
-            print('Versão 1.6.1')
+            print('Versão 1.7')
 
-    
+
     print('Closing...')
