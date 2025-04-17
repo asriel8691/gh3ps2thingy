@@ -1,6 +1,18 @@
 import os, io
 from PIL import Image
 
+# não há delay quando a musica for exatamente multiplo de 0x20000. a próxima musica da pasta memmusic é puxada e tocada imediatamente (talvez carregam na memória o inicio e tocam assim que o outro terminar)
+# padding atrasa a próxima musica, pois o jogo lê todos os 0x00 antes de iniciar a outra musica
+
+# flags vag
+# 00 - nada
+# 01 - fim
+# 02 - corpo loop? afeta em nada
+# 03 - fim loop
+# 06 - inicio loop
+# 07 - linha final
+# no menu music não há flags, apenas nos efeitos sonoros
+
 def listfiles(extensions): # lista os arquivos a serem processados com base nas extensões
 
     currentExecutedDir = os.getcwd()  # pega o diretorio atual
@@ -392,19 +404,24 @@ def endtriggerremove(msvs_content): # tira o trigger de parar a música no final
 
     with io.BytesIO(msvs_content) as buffer:
         
-        buffer.seek(-31, 2) # move o ponteiro para o final e 0x1F para trás
-        vagFlag = buffer.read(1) # lê a flag do final do arquivo
+        buffer.seek(-15, 2) # move o ponteiro para o final e 0x0F para trás
+        vagFlag = buffer.read(1) # lê a flag dessa linha
 
-        if vagFlag == b'\x01': # se o byte for 0x01
+        if vagFlag == b'\x01':
+            buffer.write(b'\x00') # remove a flag 0x01 de fim
 
-            buffer.seek(-1, 1) # move o ponteiro novamente para a flag
-            buffer.write(b'\x00') # remove a flag
-            buffer.seek(15, 1) # avança 15 bytes a partir da posição atual
-            buffer.write(b'\x00' * 15) # remove a linha 0x77 sobrescrevendo com 0x00
-    
+        elif vagFlag == b'\x07': # se o byte for 0x07
+
+            buffer.seek(-17, 1) # move o ponteiro uma linha acima, para a flag anterior
+            buffer.write(b'\x00') # remove a flag 0x01 de fim
+        
+            return buffer.getvalue()[:-16] # retorna todo o conteudo do vag - barra de 0x77 no final
+        else:
+            print('No end flag to remove')
+
         return buffer.getvalue() # retorna todo o conteudo do vag
 
-
+    
 
 def adjustsize(msvs_content, block_quantity):
 
@@ -437,7 +454,10 @@ def createmsv(vag_pair_path, base_name):
             bufferVAG.write(vagFile.read()) # lê o vag inteiro e guarda no buffer
         
         vagSize = len(bufferVAG.getvalue()) # pega o tamanho total do vag
-        vagBlockRemain = 0x20000 - ((vagSize + 1) % 0x20000) # calcula a quantidade de bytes que faltam para o próximo bloco
+        vagBlockRemain = (0x20000 - ((vagSize - 16) % 0x20000)) % 0x20000 # calcula a quantidade de bytes que faltam para o próximo bloco
+
+        # vagSize - 16 (barreira de 0x77, que faz diferença alguma se sobescrever com 0x00 [na vdd até complica na hora de fazer o padding])
+
         vagChannelBlocks = (vagSize + vagBlockRemain) // 0x20000 # divide o tamanho do conteudo + restante do bloco dividido por 0x20000
 
         vagPairBlocks.append(vagChannelBlocks) # guarda a divisão (o tanto de blocos) na lista
@@ -480,7 +500,6 @@ def createmsv(vag_pair_path, base_name):
         msvsPair.append(vagProcessed) # guarda os bytes do vag processado no par msvs
 
         print('Adjusted size {}'.format(vag_pair_path[i]))
-
 
     print('\nSorting channel blocks')
 
@@ -536,7 +555,7 @@ if __name__ == "__main__":
             
 
         elif option == 9:
-            print('Versão 1.7')
+            print('Versão 1.7.1')
 
 
     print('Closing...')
